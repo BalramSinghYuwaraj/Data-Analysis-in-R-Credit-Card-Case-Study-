@@ -1,0 +1,328 @@
+---
+title: "Credit_Card_Analysis"
+author: "Balram"
+date: "26/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+chooseCRANmirror(graphics=FALSE, ind=1)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Credit}
+
+#Credit Card analysis
+
+Customer_Acq = read.csv(choose.files())
+Repayment = read.csv(choose.files())
+Spend = read.csv(choose.files())
+
+library(plyr)
+library(dplyr)
+library(lubridate)
+library(magrittr)
+library(pivottabler)
+library(reshape2)
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+
+
+#1. In the above dataset,
+#a. Incase age is less than 18, replace it with mean of age values.
+
+Customer_Acq$Age[Customer_Acq$Age < 18] = round(mean(Customer_Acq$Age, na.rm = T))
+
+
+#b. Incase spend amount is more than the limit, replace it with 50% of that
+#customer’s limit. (customer’s limit provided in acquisition table is the per
+#                   transaction limit on his card)
+
+Customer_2 = merge(x= Spend, y= Customer_Acq , by.x = "Customer",by.y = "Customer")
+
+Customer_2 = na.omit(Customer_2)
+
+Customer_2$Amount[Customer_2$Amount > Customer_2$Limit] = (Customer_2$Limit[Customer_2$Amount > Customer_2$Limit])/2
+
+
+#c. Incase the repayment amount is more than the limit, replace the
+#repayment with the limit.
+
+Customer_1 = merge(x= Repayment, y= Customer_Acq , by.x = "Customer",by.y = "Customer")
+
+Customer_1 = subset(Customer_1, select = -c(X))
+
+Customer_1 = na.omit(Customer_1)
+
+Customer_1$Amount[Customer_1$Amount > Customer_1$Limit] = Customer_1$Limit[Customer_1$Amount > Customer_1$Limit]   
+
+View(Customer_1)
+
+
+#2. From the above dataset create the following summaries:
+# a. How many distinct customers exist?
+
+length(unique(Customer_Acq$Customer))
+
+# b. How many distinct categories exist?
+
+length(unique(Customer_Acq$Segment))
+table(Customer_Acq$Segment)
+sort(table(Customer_Acq$Segment),decreasing = TRUE)
+
+# c. What is the average monthly spend by customers?
+
+Customer_2$Month =   dmy(Customer_2$Month)
+
+Customer_2$Months <- months(Customer_2$Month)
+
+Customer_2$Year <- year(Customer_2$Month)
+
+
+Customer_spend = Customer_2 %>%
+  group_by(Customer_2$Year,Customer_2$Months) %>%
+  summarise(avg_spend = mean(Customer_2$Amount))
+
+Customer_spend
+
+
+# d. What is the average monthly repayment by customers?
+
+Customer_1$Month = dmy(Customer_1$Month)
+
+Customer_1$Months <- months(Customer_1$Month)
+
+Customer_1$Year <- year(Customer_1$Month)
+
+Customer_spend_repay = aggregate(Customer_1$Amount,list(Customer_1$Year,Customer_1$Months), FUN = mean) 
+
+Customer_spend_repay
+
+
+#e. If the monthly rate of interest is 2.9%, what is the profit for the bank for
+#each month? (Profit is defined as interest earned on Monthly Profit.
+#            Monthly Profit = Monthly repayment – Monthly spend. Interest is
+#           earned only on positive profits and not on negative amounts)
+
+Customer_Final <- merge(x=Customer_1,y=Spend,by.x = "Customer" , by.y="Customer")
+
+colnames(Customer_Final)
+
+names(Customer_Final)[names(Customer_Final) == "Amount.x"] <- "Spend_Amount"
+names(Customer_Final)[names(Customer_Final) == "Amount.y"] <- "Repay_Amount"
+
+colnames(Customer_Final)
+
+names(Customer_Final)[names(Customer_Final) == "Month.x"] <- "Month_spend"
+names(Customer_Final)[names(Customer_Final) == "Month.y"] <- "Month_repay"
+
+Customer_Final
+
+
+Customer_Final$Month_repay = dmy(Customer_Final$Month_repay)
+
+
+Customer_Final$Months_spends <- months(Customer_Final$Month_spend)
+
+Customer_Final$Months_repays <- months(Customer_Final$Month_repay)
+
+
+Customer_Final$Years_spends <- year(Customer_Final$Month_spend)
+
+Customer_Final$Years_repays <- year(Customer_Final$Month_repay)
+
+Monthly_spend=Customer_Final %>% group_by(Months_spends) %>%
+  summarise(sum = sum(Spend_Amount))
+names(Monthly_spend)[names(Monthly_spend) == "Months_spends"] <- "Month"
+
+
+Monthly_repay=Customer_Final %>% group_by(Months_repays) %>%
+  summarise(sum = sum(Repay_Amount))
+names(Monthly_repay)[names(Monthly_repay) == "Months_repays"] <- "Month"
+
+
+Interest_group = merge(x=Monthly_spend , y=Monthly_repay, by.x = "Month" , by.y = "Month")
+
+names(Interest_group)[names(Interest_group) == "sum.x"] <- "Spend_sum"
+names(Interest_group)[names(Interest_group) == "sum.y"] <- "Repay_Sum"
+
+
+Interest_group$Monthly_profit = Interest_group$Repay_Sum - Interest_group$Spend_sum
+
+
+Interest_group$Interest_Earned = (2.9 * Interest_group$Monthly_profit)/100
+
+Interest_group
+
+Interest_group_neg_profit = data.frame(Interest_group)
+Interest_group_neg_profit
+
+Interest_group_profit = Interest_group_neg_profit[which(Interest_group_neg_profit$Interest_Earned>0),]
+Interest_group_profit
+
+#f. What are the top 5 product types?
+
+length(unique(Spend$Type))
+table(Spend$Type)
+Top = sort(table(Spend$Type),decreasing = TRUE)
+
+Top_5 = head(Top,n = 5)
+Top_5
+
+# g. Which city is having maximum spend?
+
+head(Customer_2)
+
+City_spend = Customer_2 %>% 
+  group_by(City)%>%
+  summarise(Total_amount = sum(Amount))
+
+arrange(City_spend,desc(Total_amount))
+
+#  h. Which age group is spending more money?
+
+
+Customer_2$Age <- c(Customer_2$Age)
+Customer_2$Age_group <- ifelse(Customer_2$Age >=8 & Customer_2$Age <= 17, "8-17" ,
+                               ifelse(Customer_2$Age >= 18 & Customer_2$Age <= 34, "18-34",
+                                      ifelse(Customer_2$Age >= 35 & Customer_2$Age <= 64, "35-64",
+                                             ifelse(Customer_2$Age >= 65, "65+" , NA))))
+Customer_2$Age_group
+
+cut(Customer_2$Age, breaks=c(7,17, 34, 64, Inf), labels=c("8-17", "18-34", "35-64", "65+"))
+
+head(Customer_2)
+
+
+Age_spend = Customer_2 %>% group_by(Age_group) %>%
+  summarise(Total_amount = sum(Amount))
+
+arrange(Age_spend,desc(Total_amount))
+
+#Age group between Age 35 - 65 is spending more money
+
+#  i. Who are the top 10 customers in terms of repayment?
+
+top10_repay = Customer_1 %>% group_by(Customer) %>% summarise( Amount = sum(Amount))
+
+Top_10 = arrange(top10_repay,desc(Amount))
+Top_10
+head(Top_10 ,n=10)
+
+#3. Calculate the city wise spend on each product on yearly basis. Also include a
+#graphical representation for the same.
+
+pt = PivotTable$new()
+pt$addData(Customer_2)
+pt$addColumnDataGroups("Product")
+pt$addRowDataGroups("City")
+pt$addRowDataGroups("Year")
+pt$defineCalculation(calculationName = "Amount",summariseExpression = "sum(Amount)")
+pt$renderPivot()
+pt
+
+s_2004 = Customer_2%>%
+  filter(Year == "2004")%>%
+  group_by(City,Product)%>%
+  summarise(TotalAmount= sum(Amount))
+
+ggplot(s_2004, aes(x=City, y=TotalAmount))+ 
+  geom_bar(aes(fill = Product), position = "dodge",  stat ="identity") + ggtitle("Comparision of Products in 2004")
+
+
+s_2005 = Customer_2%>%
+  filter(Year == "2005")%>%
+  group_by(City,Product)%>%
+  summarise(TotalAmount= sum(Amount))
+
+
+ggplot(s_2005, aes(x=City, y=TotalAmount))+
+  geom_bar(aes(fill = Product), position = "dodge",  stat ="identity") + ggtitle("Comparision of Products in 2005")
+
+
+s_2006 = Customer_2%>%
+  filter(Year == "2006")%>%
+  group_by(City,Product)%>%
+  summarise(TotalAmount= sum(Amount))
+
+
+ggplot(s_2006, aes(x=City, y=TotalAmount))+
+  geom_bar(aes(fill = Product), position = "dodge",  stat ="identity") + ggtitle("Comparision of Products in 2005")
+
+
+#4. Create graphs for
+#a. Monthly comparison of total spends, city wise
+
+Monthly_spend = Customer_2 %>%
+                group_by(City,Months) %>%
+                summarise(TotalSpends = sum(Amount))
+
+Monthly_spend
+
+ggplot(Monthly_spend, aes(x=City, y=TotalSpends))+
+  geom_bar(aes(fill = Months), position = "dodge",  stat ="identity") + ggtitle("Comparision of monthly spend by city wise")
+
+#b. Comparison of yearly spend on air tickets
+
+Yearly_spend = Customer_2 %>% 
+              filter(Type == "AIR TICKET") %>%
+              group_by(Year) %>%
+              summarise(TotalSpend = sum(Amount))
+Yearly_spend
+
+ggplot(Yearly_spend, aes(x=Year, y=TotalSpend))+
+  geom_bar(stat="identity") + ggtitle("Comparision of yearly spend on Air ticket")
+
+
+
+#c. Comparison of monthly spend for each product (look for any seasonality
+#                                                 that exists in terms of spend)
+
+
+Monthly_spend_product = Customer_2 %>% 
+  group_by(Product,Months) %>%
+  summarise(TotalSpend = sum(Amount))
+
+Monthly_spend_product
+
+ggplot(Monthly_spend_product, aes(x=Product, y=TotalSpend))+
+  geom_bar(aes(fill = Months), position = "dodge",  stat ="identity") + ggtitle("Monthly spend for each Product")
+
+#5. Write user defined R function to perform the following analysis:
+#You need to find top 10 customers for each city in terms of their repayment
+#amount by different products and by different time periods i.e. year or
+#month. The user should be able to specify the product
+#(Gold/Silver/Platinum) and time period (yearly or monthly) and the function
+#should automatically take these inputs while identifying the top 10
+#customers.
+
+product_category = readline(prompt = "Please enter the product category(Gold/platinum/silver)")
+
+Time_period = readline(prompt = "Enter the time period(Year/Months)")
+
+
+Prod_cat =  if(Time_period == "Months")  {
+  
+    Customer_1 %>% filter(Product == product_category) %>%
+      group_by(Customer,City,Product,Months) %>% 
+      summarise(Total_amount = sum(Amount))
+    
+          
+    
+ } else {
+  
+    Customer_1 %>% filter(Product == product_category) %>%
+      group_by(Customer,City,Product,Year) %>% 
+      summarise(Total_amount = sum(Amount))
+ }
+
+Prod_cat
+
+Prod_cat_top = arrange(Prod_cat,desc(Total_amount))
+Prod_cat_top
+
+Prod_cat_top10 = head(Prod_cat_top , n=10)
+Prod_cat_top10
+
+``` 
